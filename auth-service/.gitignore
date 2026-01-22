@@ -1,0 +1,4 @@
+auth-service
+*.log
+.env
+vendor/
