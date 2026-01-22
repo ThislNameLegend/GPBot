@@ -1,0 +1,16 @@
+build/
+*.o
+*.out
+*.so
+*.a
+*.dylib
+*.dll
+*.exe
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+test.db
+*.db
+compile_commands.json
