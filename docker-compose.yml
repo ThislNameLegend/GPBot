@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   auth-service:
     build: ./auth-service
@@ -7,9 +5,39 @@ services:
       - "8081:8081"
     environment:
       - JWT_SECRET=test_secret_key_123
+    networks:
+      - app-network
+
+  core-service:
+    build: ./core-service
+    ports:
+      - "8080:8080"
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:8081
+    networks:
+      - app-network
+    depends_on:
+      - auth-service
 
   telegram-bot:
     build: ./telegram-bot
     environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - API_URL=http://core-service:8080  # пока заглушка
+      - BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - API_URL=http://core-service:8080
+    networks:
+      - app-network
+    depends_on:
+      - core-service
+
+  web-client:
+    build: ./web-client
+    ports:
+      - "3000:3000"
+    networks:
+      - app-network
+    depends_on:
+      - core-service
+
+networks:
+  app-network:
+    driver: bridge
