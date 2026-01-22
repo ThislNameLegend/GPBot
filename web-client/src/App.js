@@ -1,4 +1,3 @@
-misha, [22.01.2026 14:16]
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate } from 'react-router-dom';
 import './App.css';
@@ -24,7 +23,7 @@ function App() {
   const fetchUserInfo = async (userToken) => {
     try {
       const response = await fetch('http://localhost:8081/auth/user', {
-        headers: { 'Authorization': Bearer ${userToken} }
+        headers: { 'Authorization': `Bearer ${userToken}` }
       });
       if (response.ok) {
         const data = await response.json();
@@ -115,7 +114,6 @@ function App() {
   );
 }
 
-misha, [22.01.2026 14:16]
 function Home() {
   return (
     <div className="home">
