@@ -1,3 +1,4 @@
+# ИСПРАВЛЕННЫЙ Dockerfile для core-service:
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y \
@@ -11,7 +12,10 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY . .
+# Копируем зависимости отдельно для кэширования
+COPY CMakeLists.txt .
+COPY include/ ./include/
+COPY src/ ./src/
 
 RUN mkdir build && cd build && \
     cmake .. && \
