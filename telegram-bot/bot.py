@@ -1,7 +1,7 @@
 import asyncio
 import os
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -17,7 +17,8 @@ load_dotenv()
 
 # Получение конфигурации
 TOKEN = os.getenv("BOT_TOKEN")
-CORE_API = os.getenv("API_URL", "http://core:8080")
+# ИСПРАВЛЕНО: core-service вместо core
+CORE_API = os.getenv("API_URL", "http://core-service:8080")
 
 # Проверка обязательных переменных
 if not TOKEN:
@@ -50,11 +51,25 @@ async def fetch_tests() -> List[Dict]:
     """Получить список тестов из Core API"""
     try:
         async with aiohttp.ClientSession() as session:
+            # ИСПРАВЛЕНО: добавлен таймаут и обработка ошибок
             async with session.get(f"{CORE_API}/api/tests", timeout=10) as response:
                 if response.status == 200:
-                    return await response.json()
-                print(f"Core API вернул статус {response.status}")
-                return []
+                    data = await response.json()
+                    # Проверяем, что данные в правильном формате
+                    if isinstance(data, list):
+                        return data
+                    else:
+                        print(f"Core API вернул неожиданный формат: {type(data)}")
+                        return []
+                else:
+                    print(f"Core API вернул статус {response.status}")
+                    return []
+    except aiohttp.ClientError as e:
+        print(f"Ошибка сети при запросе тестов: {e}")
+        return []
+    except asyncio.TimeoutError:
+        print("Таймаут при запросе тестов")
+        return []
     except Exception as e:
         print(f"Ошибка при запросе тестов: {e}")
         return []
@@ -69,6 +84,12 @@ async def fetch_test(test_id: int) -> Optional[Dict]:
                     return await response.json()
                 print(f"Core API вернул статус {response.status} для теста {test_id}")
                 return None
+    except aiohttp.ClientError as e:
+        print(f"Ошибка сети при запросе теста {test_id}: {e}")
+        return None
+    except asyncio.TimeoutError:
+        print(f"Таймаут при запросе теста {test_id}")
+        return None
     except Exception as e:
         print(f"Ошибка при запросе теста {test_id}: {e}")
         return None
@@ -84,15 +105,21 @@ async def submit_answers(user_id: int, test_id: int, answers: List[int]) -> Opti
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                    f"{CORE_API}/api/tests/{test_id}/submit",
-                    json=payload,
-                    timeout=10
+                f"{CORE_API}/api/tests/{test_id}/submit",
+                json=payload,
+                timeout=10
             ) as response:
                 if response.status == 200:
                     return await response.json()
                 else:
                     print(f"Core API вернул статус {response.status} при отправке ответов")
                     return None
+    except aiohttp.ClientError as e:
+        print(f"Ошибка сети при отправке ответов: {e}")
+        return None
+    except asyncio.TimeoutError:
+        print("Таймаут при отправке ответов")
+        return None
     except Exception as e:
         print(f"Ошибка при отправке ответов: {e}")
         return None
@@ -128,7 +155,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_tests_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команда /tests"""
+    """Обработчик команды /tests"""
     await show_tests(update, context)
     return SELECTING_TEST
 
@@ -146,7 +173,7 @@ async def show_tests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tests = await fetch_tests()
 
     if not tests:
-        await message.edit_text("❌ Не удалось загрузить тесты. Сервер Core не доступен.")
+        await message.edit_text("❌ Не удалось загрузить тесты. Сервер Core не доступен или тестов пока нет.")
         return ConversationHandler.END
 
     keyboard = []
