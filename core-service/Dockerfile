@@ -11,10 +11,17 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY . .
+COPY CMakeLists.txt .
+COPY include/ ./include/
 
-RUN mkdir -p build && \
-    cd build && \
+RUN git clone https://github.com/yhirose/cpp-httplib.git /tmp/httplib && \
+    cp /tmp/httplib/httplib.h /usr/local/include/ && \
+    git clone https://github.com/nlohmann/json.git /tmp/json && \
+    cp -r /tmp/json/include/nlohmann /usr/local/include/
+
+COPY src/ ./src/
+
+RUN mkdir -p build && cd build && \
     cmake .. && \
     make
 
