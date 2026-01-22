@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  auth-service:
+    build: ./auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      - JWT_SECRET=test_secret_key_123
+
+  telegram-bot:
+    build: ./telegram-bot
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - API_URL=http://core-service:8080  # пока заглушка
