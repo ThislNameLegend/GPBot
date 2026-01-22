@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   auth-service:
     build: ./auth-service
@@ -7,7 +9,7 @@ services:
       - JWT_SECRET=test_secret_key_123
     networks:
       - app-network
-    healthcheck:  # ← ДОБАВЬ
+    healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
       interval: 30s
       timeout: 10s
@@ -23,8 +25,8 @@ services:
       - app-network
     depends_on:
       auth-service:
-        condition: service_healthy  # ← ИЗМЕНИ
-    healthcheck:  # ← ДОБАВЬ
+        condition: service_healthy
+    healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
@@ -39,8 +41,8 @@ services:
       - app-network
     depends_on:
       core-service:
-        condition: service_healthy  # ← ИЗМЕНИ
-    restart: unless-stopped  # ← ДОБАВЬ
+        condition: service_healthy
+    restart: unless-stopped
 
   web-client:
     build: ./web-client
@@ -50,9 +52,10 @@ services:
       - app-network
     depends_on:
       core-service:
-        condition: service_healthy  # ← ИЗМЕНИ
-    restart: unless-stopped  # ← ДОБАВЬ
+        condition: service_healthy
+    restart: unless-stopped
 
+# ДОБАВЬТЕ ЭТОТ РАЗДЕЛ!
 networks:
   app-network:
     driver: bridge
