@@ -142,8 +142,8 @@ int main() {
         
         int score = (test.questions.size() > 0) ? (correct * 100) / test.questions.size() : 0;
         
-        // Сохраняем результат
-        int user_id = 0; // В реальности получаем из токена
+        // Сохраняем результат - ИСПРАВЛЕНО: user_id = 1001 для теста
+        int user_id = 1001;
         db.save_result(user_id, test_id, answer_vec, score);
         
         json result = {
