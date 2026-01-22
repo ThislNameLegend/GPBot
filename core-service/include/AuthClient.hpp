@@ -18,12 +18,7 @@ private:
 public:
     AuthClient(const std::string& url = "http://auth-service:8081");
     
-    // Проверка токена
     std::optional<UserInfo> validate_token(const std::string& token);
-    
-    // Получение информации о пользователе
     std::optional<json> get_user_info(const std::string& token);
-    
-    // Проверка доступа (только для админов)
     bool is_admin(const std::string& token);
 };
