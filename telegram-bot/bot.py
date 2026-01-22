@@ -1,7 +1,7 @@
 import asyncio
 import os
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -25,7 +25,7 @@ if not TOKEN:
     exit(1)
 
 # Состояния для ConversationHandler
-SELECTING_TEST, ANSWERING_QUESTION = range(2)
+SELECTING_TEST, ANSWERING_QUESTION, SHOWING_RESULTS = range(3)
 
 
 # Хранение состояния пользователя
@@ -36,6 +36,7 @@ class UserSession:
     current_question_index: int = 0
     user_answers: List[int] = field(default_factory=list)
     test_title: str = ""
+    correct_answers: List[Optional[int]] = field(default_factory=list)
 
 
 # Хранилище сессий пользователей
@@ -49,7 +50,6 @@ async def fetch_tests() -> List[Dict]:
     """Получить список тестов из Core API"""
     try:
         async with aiohttp.ClientSession() as session:
-            # ИСПРАВЛЕНО: добавлен /api/
             async with session.get(f"{CORE_API}/api/tests", timeout=10) as response:
                 if response.status == 200:
                     return await response.json()
@@ -64,7 +64,6 @@ async def fetch_test(test_id: int) -> Optional[Dict]:
     """Получить конкретный тест по ID"""
     try:
         async with aiohttp.ClientSession() as session:
-            # ИСПРАВЛЕНО: добавлен /api/
             async with session.get(f"{CORE_API}/api/tests/{test_id}", timeout=10) as response:
                 if response.status == 200:
                     return await response.json()
@@ -75,8 +74,8 @@ async def fetch_test(test_id: int) -> Optional[Dict]:
         return None
 
 
-async def submit_answers(user_id: int, test_id: int, answers: List[int]) -> bool:
-    """Отправить ответы в Core API"""
+async def submit_answers(user_id: int, test_id: int, answers: List[int]) -> Optional[Dict]:
+    """Отправить ответы в Core API и получить результаты"""
     try:
         payload = {
             "user_id": user_id,
@@ -84,16 +83,19 @@ async def submit_answers(user_id: int, test_id: int, answers: List[int]) -> bool
         }
 
         async with aiohttp.ClientSession() as session:
-            # ИСПРАВЛЕНО: добавлен /api/
             async with session.post(
                     f"{CORE_API}/api/tests/{test_id}/submit",
                     json=payload,
                     timeout=10
             ) as response:
-                return response.status == 200
+                if response.status == 200:
+                    return await response.json()
+                else:
+                    print(f"Core API вернул статус {response.status} при отправке ответов")
+                    return None
     except Exception as e:
         print(f"Ошибка при отправке ответов: {e}")
-        return False
+        return None
 
 
 # ============================================
@@ -108,10 +110,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📋 Доступные команды:\n"
         "/tests - Посмотреть все тесты\n"
         "/help - Помощь и инструкции\n\n"
+        "После прохождения теста вы увидите:\n"
+        "✅ - правильный ответ\n"
+        "❌ - неправильный ответ\n"
+        "📊 - итоговый результат\n\n"
         "Используйте меню внизу для быстрого доступа к командам."
     )
 
-    # Создаем клавиатуру с командами
     keyboard = [
         [InlineKeyboardButton("📚 Все тесты", callback_data="show_tests")],
         [InlineKeyboardButton("ℹ️ Помощь", callback_data="help")]
@@ -132,21 +137,18 @@ async def show_tests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показать список тестов с инлайн-кнопками"""
     user_id = update.effective_user.id
 
-    # Показываем "загрузка"
     if update.callback_query:
         await update.callback_query.answer()
         message = await update.callback_query.message.reply_text("🔄 Загружаю тесты...")
     else:
         message = await update.message.reply_text("🔄 Загружаю тесты...")
 
-    # Получаем тесты из Core
     tests = await fetch_tests()
 
     if not tests:
         await message.edit_text("❌ Не удалось загрузить тесты. Сервер Core не доступен.")
         return ConversationHandler.END
 
-    # Создаем кнопки для каждого теста
     keyboard = []
     for test in tests:
         test_id = test.get('id', 0)
@@ -156,9 +158,7 @@ async def show_tests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         button_text = f"📝 {title} ({questions_count} вопросов)"
         keyboard.append([InlineKeyboardButton(button_text, callback_data=f"select_test_{test_id}")])
 
-    # Добавляем кнопку "Назад"
     keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="back_to_start")])
-
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await message.edit_text(
@@ -174,32 +174,39 @@ async def select_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    # Извлекаем ID теста из callback_data: "select_test_1"
     test_id = int(query.data.split("_")[2])
     user_id = query.from_user.id
 
-    # Загружаем тест
     test_data = await fetch_test(test_id)
 
     if not test_data:
         await query.message.edit_text("❌ Не удалось загрузить тест. Попробуйте позже.")
         return ConversationHandler.END
 
-    # Сохраняем сессию пользователя
     questions = test_data.get('questions', [])
+    
+    # Извлекаем правильные ответы из вопросов
+    correct_answers = []
+    for q in questions:
+        # Предполагаем, что у вопроса есть поле 'correct_answer' или 'correct_option'
+        correct_answer = q.get('correct_answer') or q.get('correct_option')
+        if correct_answer is not None:
+            correct_answers.append(correct_answer)
+        else:
+            correct_answers.append(None)
+    
     user_sessions[user_id] = UserSession(
         current_test_id=test_id,
         current_questions=questions,
-        test_title=test_data.get('title', 'Тест')
+        test_title=test_data.get('title', 'Тест'),
+        correct_answers=correct_answers
     )
 
     if not questions:
         await query.message.edit_text("⚠️ В этом тесте пока нет вопросов.")
         return ConversationHandler.END
 
-    # Показываем первый вопрос
     await show_question(query.message, user_id, 0)
-
     return ANSWERING_QUESTION
 
 
@@ -213,12 +220,39 @@ async def show_question(message, user_id: int, question_index: int):
     question_text = question.get('text', '')
     options = question.get('options', [])
 
+    # Показываем предыдущий результат, если он есть
+    result_text = ""
+    if question_index < len(session.user_answers):
+        user_answer = session.user_answers[question_index]
+        if user_answer != -1:
+            is_correct = (session.correct_answers[question_index] == user_answer 
+                          if session.correct_answers[question_index] is not None else None)
+            if is_correct is not None:
+                result_text = "\n\n"
+                if is_correct:
+                    result_text += "✅ Вы ответили правильно!"
+                else:
+                    correct_idx = session.correct_answers[question_index]
+                    if 0 <= correct_idx < len(options):
+                        result_text += f"❌ Правильный ответ: {options[correct_idx]}"
+                    else:
+                        result_text += "❌ Вы ответили неправильно"
+
     # Создаем кнопки с вариантами ответов
     keyboard = []
     for i, option in enumerate(options):
+        # Подсвечиваем уже выбранный ответ
+        prefix = ""
+        if question_index < len(session.user_answers):
+            if session.user_answers[question_index] == i:
+                prefix = "🔹 "
+            elif (session.correct_answers[question_index] == i and 
+                  session.correct_answers[question_index] is not None):
+                prefix = "✅ "
+        
         callback_data = f"answer_{question_index}_{i}"
         keyboard.append([InlineKeyboardButton(
-            f"{i + 1}. {option}",
+            f"{prefix}{i + 1}. {option}",
             callback_data=callback_data
         )])
 
@@ -230,7 +264,7 @@ async def show_question(message, user_id: int, question_index: int):
     if question_index < len(session.current_questions) - 1:
         nav_buttons.append(InlineKeyboardButton("Далее ➡️", callback_data=f"next_{question_index + 1}"))
     else:
-        nav_buttons.append(InlineKeyboardButton("✅ Завершить", callback_data="finish_test"))
+        nav_buttons.append(InlineKeyboardButton("✅ Завершить тест", callback_data="finish_test"))
 
     if nav_buttons:
         keyboard.append(nav_buttons)
@@ -242,7 +276,8 @@ async def show_question(message, user_id: int, question_index: int):
     await message.edit_text(
         f"📝 Тест: {session.test_title}\n"
         f"Вопрос {question_index + 1}/{len(session.current_questions)}\n\n"
-        f"{question_text}",
+        f"{question_text}"
+        f"{result_text}",
         reply_markup=reply_markup
     )
 
@@ -259,7 +294,6 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text("❌ Сессия устарела. Начните заново.")
         return ConversationHandler.END
 
-    # Извлекаем данные: "answer_0_1" (ответ на вопрос 0, вариант 1)
     parts = query.data.split("_")
     question_index = int(parts[1])
     answer_index = int(parts[2])
@@ -269,10 +303,8 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         session.user_answers.extend([-1] * (question_index - len(session.user_answers) + 1))
     session.user_answers[question_index] = answer_index
 
-    # Показываем подтверждение
-    await query.answer(f"✅ Ответ {answer_index + 1} сохранен", show_alert=False)
-
-    # Остаемся на том же вопросе
+    # Перерисовываем текущий вопрос с результатом
+    await show_question(query.message, user_id, question_index)
     return ANSWERING_QUESTION
 
 
@@ -299,7 +331,7 @@ async def navigate_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def finish_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Завершение тест и отправка результатов"""
+    """Завершение теста и отправка результатов"""
     query = update.callback_query
     await query.answer()
 
@@ -314,8 +346,7 @@ async def finish_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     unanswered = [i + 1 for i, ans in enumerate(session.user_answers)
                   if ans == -1 or i >= len(session.user_answers)]
 
-    if unanswered:
-        # Предлагаем ответить на пропущенные
+    if unanswered and query.data != "force_finish":
         keyboard = [
             [InlineKeyboardButton("✅ Да, отправить как есть", callback_data="force_finish")],
             [InlineKeyboardButton("⬅️ Вернуться к вопросам", callback_data=f"back_to_{unanswered[0] - 1}")]
@@ -331,37 +362,151 @@ async def finish_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Все ответы есть - отправляем
     await submit_and_show_results(query.message, user_id, session)
-    return ConversationHandler.END
+    return SHOWING_RESULTS
+
+
+async def calculate_local_results(session: UserSession) -> Dict:
+    """Локальный расчет результатов на основе правильных ответов"""
+    total = len(session.current_questions)
+    answered = sum(1 for ans in session.user_answers if ans != -1 and ans is not None)
+    correct = 0
+    
+    # Считаем правильные ответы
+    for i in range(total):
+        if i < len(session.user_answers) and session.user_answers[i] != -1:
+            if (session.correct_answers[i] is not None and 
+                session.user_answers[i] == session.correct_answers[i]):
+                correct += 1
+    
+    if total > 0:
+        score_percent = (correct / total) * 100
+    else:
+        score_percent = 0
+    
+    return {
+        "total_questions": total,
+        "answered": answered,
+        "correct": correct,
+        "incorrect": answered - correct,
+        "skipped": total - answered,
+        "score_percent": score_percent,
+        "passed": score_percent >= 70  # Порог сдачи 70%
+    }
+
+
+async def show_detailed_results(message, user_id: int, session: UserSession, results: Dict):
+    """Показать детальные результаты по каждому вопросу"""
+    text = f"📊 РЕЗУЛЬТАТЫ ТЕСТА: {session.test_title}\n\n"
+    
+    # Общая статистика
+    text += f"📈 Общая статистика:\n"
+    text += f"• Всего вопросов: {results['total_questions']}\n"
+    text += f"• Отвечено: {results['answered']}\n"
+    text += f"• Правильных ответов: {results['correct']} ✅\n"
+    text += f"• Неправильных ответов: {results['incorrect']} ❌\n"
+    text += f"• Пропущено: {results['skipped']}\n"
+    text += f"• Результат: {results['score_percent']:.1f}%\n\n"
+    
+    # Определяем, сдан ли тест
+    if results['passed']:
+        text += "🎉 ПОЗДРАВЛЯЕМ! ТЕСТ СДАН! 🎉\n\n"
+    else:
+        text += "😔 ТЕСТ НЕ СДАН. Попробуйте еще раз!\n\n"
+    
+    # Детали по каждому вопросу
+    text += "📋 Ответы по вопросам:\n"
+    for i, question in enumerate(session.current_questions):
+        text += f"\n{i + 1}. {question.get('text', '')[:50]}..."
+        
+        if i >= len(session.user_answers) or session.user_answers[i] == -1:
+            text += "\n   ❓ Вы не ответили на этот вопрос"
+        else:
+            user_answer_idx = session.user_answers[i]
+            correct_answer_idx = session.correct_answers[i]
+            
+            if user_answer_idx is not None and correct_answer_idx is not None:
+                if user_answer_idx == correct_answer_idx:
+                    text += "\n   ✅ Правильно"
+                else:
+                    text += "\n   ❌ Неправильно"
+                    
+                    # Показываем правильный ответ
+                    options = question.get('options', [])
+                    if 0 <= correct_answer_idx < len(options):
+                        text += f" (правильный ответ: {options[correct_answer_idx]})"
+    
+    # Кнопки для навигации
+    keyboard = [
+        [InlineKeyboardButton("🔍 Посмотреть вопросы", callback_data="review_questions")],
+        [InlineKeyboardButton("📚 Выбрать другой тест", callback_data="show_tests")],
+        [InlineKeyboardButton("🏠 В главное меню", callback_data="back_to_start")]
+    ]
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Разбиваем длинное сообщение на части, если оно слишком длинное
+    if len(text) > 4000:
+        parts = []
+        while len(text) > 4000:
+            part = text[:4000]
+            last_newline = part.rfind('\n')
+            if last_newline > 0:
+                parts.append(text[:last_newline])
+                text = text[last_newline+1:]
+            else:
+                parts.append(text[:4000])
+                text = text[4000:]
+        parts.append(text)
+        
+        for i, part in enumerate(parts):
+            if i == 0:
+                await message.edit_text(part, reply_markup=reply_markup)
+            else:
+                await message.reply_text(part)
+    else:
+        await message.edit_text(text, reply_markup=reply_markup)
 
 
 async def submit_and_show_results(message, user_id: int, session: UserSession):
     """Отправить результаты и показать итог"""
     # Отправляем в Core
-    success = await submit_answers(user_id, session.current_test_id, session.user_answers)
-
-    # Очищаем сессию
-    if user_id in user_sessions:
-        del user_sessions[user_id]
-
-    if success:
-        # Рассчитываем результат (в реальности Core вернет оценку)
-        total = len(session.user_answers)
-        answered = sum(1 for ans in session.user_answers if ans != -1)
-
-        await message.edit_text(
-            f"🎉 Тест '{session.test_title}' завершен!\n\n"
-            f"📊 Результаты:\n"
-            f"• Всего вопросов: {total}\n"
-            f"• Отвечено: {answered}\n"
-            f"• Пропущено: {total - answered}\n\n"
-            f"Спасибо за участие! Результаты сохранены.\n\n"
-            f"Чтобы пройти другой тест, используйте /tests"
-        )
+    api_results = await submit_answers(user_id, session.current_test_id, session.user_answers)
+    
+    if api_results:
+        # Используем результаты от API
+        results = {
+            "total_questions": api_results.get("total_questions", len(session.current_questions)),
+            "answered": len([a for a in session.user_answers if a != -1]),
+            "correct": api_results.get("correct_answers", 0),
+            "incorrect": api_results.get("incorrect_answers", 0),
+            "skipped": api_results.get("total_questions", len(session.current_questions)) - 
+                       len([a for a in session.user_answers if a != -1]),
+            "score_percent": api_results.get("score", 0),
+            "passed": api_results.get("passed", False)
+        }
     else:
-        await message.edit_text(
-            "❌ Не удалось отправить результаты.\n"
-            "Попробуйте позже или свяжитесь с администратором."
-        )
+        # Локальный расчет, если API не вернул результаты
+        results = await calculate_local_results(session)
+    
+    # Показываем детальные результаты
+    await show_detailed_results(message, user_id, session, results)
+
+
+async def review_questions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Просмотр вопросов после завершения теста"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    session = user_sessions.get(user_id)
+    
+    if not session:
+        await query.message.edit_text("❌ Сессия устарела. Начните заново.")
+        return ConversationHandler.END
+    
+    # Возвращаемся к первому вопросу
+    await show_question(query.message, user_id, 0)
+    return ANSWERING_QUESTION
 
 
 async def cancel_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -393,8 +538,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1. Нажмите /tests\n"
         "2. Выберите тест из списка\n"
         "3. Отвечайте на вопросы, выбирая варианты ответов\n"
-        "4. Переходите между вопросами с помощью кнопок\n"
+        "4. Сразу видите, правильно ли ответили\n"
         "5. Завершите тест, когда ответите на все вопросы\n\n"
+        "Обозначения:\n"
+        "✅ - правильный ответ\n"
+        "❌ - неправильный ответ\n"
+        "🔹 - ваш выбранный ответ\n\n"
+        "После теста вы увидите:\n"
+        "• Подробные результаты по каждому вопросу\n"
+        "• Общий процент правильных ответов\n"
+        "• Информацию, сдан ли тест\n\n"
         "Если бот не отвечает:\n"
         "• Проверьте подключение к интернету\n"
         "• Убедитесь, что сервер Core работает\n"
@@ -468,6 +621,11 @@ def main():
                     CallbackQueryHandler(lambda u, c: show_question(u.callback_query.message, u.effective_user.id,
                                                                     int(u.callback_query.data.split("_")[2])),
                                          pattern="^back_to_")
+                ],
+                SHOWING_RESULTS: [
+                    CallbackQueryHandler(review_questions, pattern="^review_questions$"),
+                    CallbackQueryHandler(show_tests, pattern="^show_tests$"),
+                    CallbackQueryHandler(back_to_start, pattern="^back_to_start$")
                 ]
             },
             fallbacks=[
