@@ -64,31 +64,6 @@ std::vector<Test> Database::get_all_tests() {
             test.id = sqlite3_column_int(stmt, 0);
             test.title = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
             test.description = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-            
-            // Получаем вопросы для этого теста
-            sqlite3_stmt* q_stmt;
-            std::string q_sql = "SELECT text, options_json, correct_answer FROM questions WHERE test_id = ?";
-            if (sqlite3_prepare_v2(db, q_sql.c_str(), -1, &q_stmt, nullptr) == SQLITE_OK) {
-                sqlite3_bind_int(q_stmt, 1, test.id);
-                while (sqlite3_step(q_stmt) == SQLITE_ROW) {
-                    Question q;
-                    q.text = reinterpret_cast<const char*>(sqlite3_column_text(q_stmt, 0));
-                    
-                    // Парсим options из JSON
-                    std::string options_json = reinterpret_cast<const char*>(sqlite3_column_text(q_stmt, 1));
-                    try {
-                        json j = json::parse(options_json);
-                        for (const auto& item : j) {
-                            q.options.push_back(item.get<std::string>());
-                        }
-                    } catch (...) {}
-                    
-                    q.correct_answer = sqlite3_column_int(q_stmt, 2);
-                    test.questions.push_back(q);
-                }
-                sqlite3_finalize(q_stmt);
-            }
-            
             tests.push_back(test);
         }
         sqlite3_finalize(stmt);
@@ -97,8 +72,6 @@ std::vector<Test> Database::get_all_tests() {
     sqlite3_close(db);
     return tests;
 }
-
-// Остальные методы аналогично...
 
 int Database::create_test(const std::string& title, const std::string& description) {
     sqlite3* db;
@@ -125,4 +98,31 @@ int Database::create_test(const std::string& title, const std::string& descripti
     sqlite3_finalize(stmt);
     sqlite3_close(db);
     return -1;
+}
+
+void Database::save_result(int user_id, int test_id, const std::vector<int>& answers, int score) {
+    sqlite3* db;
+    sqlite3_stmt* stmt;
+    
+    if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
+        return;
+    }
+    
+    const char* sql = "INSERT INTO results (user_id, test_id, answers_json, score) VALUES (?, ?, ?, ?)";
+    
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, user_id);
+        sqlite3_bind_int(stmt, 2, test_id);
+        
+        json answers_json = answers;
+        std::string answers_str = answers_json.dump();
+        sqlite3_bind_text(stmt, 3, answers_str.c_str(), -1, SQLITE_STATIC);
+        
+        sqlite3_bind_int(stmt, 4, score);
+        
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+    
+    sqlite3_close(db);
 }
