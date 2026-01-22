@@ -44,14 +44,11 @@ services:
         condition: service_healthy
 
   web-client:
-    build: ./web-client
-    ports:
-      - "3000:3000"
-    networks:
-      - app-network
-    depends_on:
-      core-service:
-        condition: service_healthy
+  build: ./web-client
+  ports:
+    - "3000:3000"
+  networks:
+    - app-network
 
 networks:
   app-network:
