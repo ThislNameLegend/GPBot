@@ -7,6 +7,11 @@ services:
       - JWT_SECRET=test_secret_key_123
     networks:
       - app-network
+    healthcheck:  # ← ДОБАВЬ
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   core-service:
     build: ./core-service
@@ -17,7 +22,13 @@ services:
     networks:
       - app-network
     depends_on:
-      - auth-service
+      auth-service:
+        condition: service_healthy  # ← ИЗМЕНИ
+    healthcheck:  # ← ДОБАВЬ
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   telegram-bot:
     build: ./telegram-bot
@@ -27,7 +38,9 @@ services:
     networks:
       - app-network
     depends_on:
-      - core-service
+      core-service:
+        condition: service_healthy  # ← ИЗМЕНИ
+    restart: unless-stopped  # ← ДОБАВЬ
 
   web-client:
     build: ./web-client
@@ -36,7 +49,9 @@ services:
     networks:
       - app-network
     depends_on:
-      - core-service
+      core-service:
+        condition: service_healthy  # ← ИЗМЕНИ
+    restart: unless-stopped  # ← ДОБАВЬ
 
 networks:
   app-network:
