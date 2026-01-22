@@ -1,4 +1,3 @@
-cat > bot.py << 'EOF'
 import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -9,7 +8,6 @@ logger = logging.getLogger(__name__)
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN")
 
-# Простые тестовые данные
 TESTS = {
     1: {
         "id": 1,
@@ -49,7 +47,6 @@ TESTS = {
     }
 }
 
-# Хранение сессий
 user_sessions = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -65,7 +62,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def show_tests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показать список тестов с кнопками"""
     keyboard = [
         [InlineKeyboardButton("🧮 Тест по математике", callback_data="test_2")],
         [InlineKeyboardButton("💻 Тест по программированию", callback_data="test_1")],
@@ -74,15 +70,12 @@ async def show_tests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📋 Выберите тест:", reply_markup=reply_markup)
 
 async def math_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сразу начать тест по математике"""
     await start_test(update, context, test_id=2)
 
 async def prog_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сразу начать тест по программированию"""
     await start_test(update, context, test_id=1)
 
 async def start_test(update: Update, context: ContextTypes.DEFAULT_TYPE, test_id):
-    """Начать тест"""
     test = TESTS.get(test_id)
     
     if not test:
@@ -91,7 +84,6 @@ async def start_test(update: Update, context: ContextTypes.DEFAULT_TYPE, test_id
     
     user_id = update.effective_user.id
     
-    # Сохраняем сессию
     user_sessions[user_id] = {
         "test_id": test_id,
         "test_title": test["title"],
@@ -103,14 +95,12 @@ async def start_test(update: Update, context: ContextTypes.DEFAULT_TYPE, test_id
     await show_question(update, user_id, 0)
 
 async def show_question(update: Update, user_id, question_index):
-    """Показать вопрос с кнопками"""
     session = user_sessions.get(user_id)
     if not session or question_index >= len(session["questions"]):
         return
     
     question = session["questions"][question_index]
     
-    # СОЗДАЕМ КНОПКИ С ВАРИАНТАМИ ОТВЕТОВ
     keyboard = []
     answers = question["answers"]
     
@@ -120,7 +110,6 @@ async def show_question(update: Update, user_id, question_index):
             callback_data=f"answer_{question_index}_{i}"
         )])
     
-    # Кнопки навигации
     nav_buttons = []
     if question_index > 0:
         nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"prev_{question_index-1}"))
@@ -142,8 +131,42 @@ async def show_question(update: Update, user_id, question_index):
         reply_markup=reply_markup
     )
 
+async def show_question_callback(query, user_id, question_index):
+    session = user_sessions.get(user_id)
+    if not session or question_index >= len(session["questions"]):
+        return
+    
+    question = session["questions"][question_index]
+    
+    keyboard = []
+    for i, answer in enumerate(question["answers"]):
+        keyboard.append([InlineKeyboardButton(
+            f"{i+1}. {answer}",
+            callback_data=f"answer_{question_index}_{i}"
+        )])
+    
+    nav_buttons = []
+    if question_index > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"prev_{question_index-1}"))
+    
+    if question_index < len(session["questions"]) - 1:
+        nav_buttons.append(InlineKeyboardButton("Далее ➡️", callback_data=f"next_{question_index+1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton("✅ Завершить тест", callback_data="finish"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.message.edit_text(
+        f"📝 Тест: {session['test_title']}\n"
+        f"Вопрос {question_index + 1}/{len(session['questions'])}\n\n"
+        f"{question['text']}",
+        reply_markup=reply_markup
+    )
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик всех callback'ов"""
     query = update.callback_query
     await query.answer()
     
@@ -157,7 +180,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     
     if data.startswith("test_"):
-        # Выбор теста из меню
         test_id = int(data.split("_")[1])
         test = TESTS.get(test_id)
         
@@ -176,26 +198,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_question_callback(query, user_id, 0)
     
     elif data.startswith("answer_"):
-        # Ответ на вопрос
         parts = data.split("_")
         question_index = int(parts[1])
         answer_index = int(parts[2])
         
-        # Сохраняем ответ
         if len(session["answers"]) <= question_index:
             session["answers"].extend([-1] * (question_index - len(session["answers"]) + 1))
         session["answers"][question_index] = answer_index
         
-        # Показываем результат
         question = session["questions"][question_index]
         correct = question["correct"]
         
-        if answer_index == correct:
-            result = "✅ Правильно!"
-        else:
-            result = f"❌ Неправильно. Правильный ответ: {question['answers'][correct]}"
-        
-        # Обновляем кнопки
         keyboard = []
         for i, answer in enumerate(question["answers"]):
             prefix = ""
@@ -207,4 +220,107 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard.append([InlineKeyboardButton(
                 f"{prefix}{i+1}. {answer}",
                 callback_data=f"answer_{question_index}_{i}"
-           
+            )])
+        
+        nav_buttons = []
+        if question_index > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"prev_{question_index-1}"))
+        
+        if question_index < len(session["questions"]) - 1:
+            nav_buttons.append(InlineKeyboardButton("Далее ➡️", callback_data=f"next_{question_index+1}"))
+        else:
+            nav_buttons.append(InlineKeyboardButton("✅ Завершить тест", callback_data="finish"))
+        
+        if nav_buttons:
+            keyboard.append(nav_buttons)
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        if answer_index == correct:
+            result_text = "✅ Правильно!"
+        else:
+            result_text = f"❌ Неправильно. Правильный ответ: {question['answers'][correct]}"
+        
+        await query.message.edit_text(
+            f"📝 Тест: {session['test_title']}\n"
+            f"Вопрос {question_index + 1}/{len(session['questions'])}\n\n"
+            f"{question['text']}\n\n{result_text}",
+            reply_markup=reply_markup
+        )
+    
+    elif data.startswith("next_"):
+        next_index = int(data.split("_")[1])
+        await show_question_callback(query, user_id, next_index)
+    
+    elif data.startswith("prev_"):
+        prev_index = int(data.split("_")[1])
+        await show_question_callback(query, user_id, prev_index)
+    
+    elif data == "finish":
+        await finish_test(query, user_id)
+
+async def finish_test(query, user_id):
+    session = user_sessions.get(user_id)
+    if not session:
+        await query.message.edit_text("❌ Сессия устарела")
+        return
+    
+    correct = 0
+    total = len(session["questions"])
+    
+    for i, (question, answer) in enumerate(zip(session["questions"], session["answers"])):
+        if answer == question["correct"]:
+            correct += 1
+    
+    score = (correct * 100) // total if total > 0 else 0
+    
+    result_text = f"""
+📊 Результаты теста:
+{'-' * 30}
+📝 Тест: {session['test_title']}
+✅ Правильных: {correct}/{total}
+📈 Процент: {score}%
+🎯 Статус: {'Сдано' if score >= 70 else 'Не сдано'}
+    """
+    
+    keyboard = [
+        [InlineKeyboardButton("📋 Выбрать другой тест", callback_data="menu")],
+        [InlineKeyboardButton("🔄 Пройти заново", callback_data=f"test_{session['test_id']}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.message.edit_text(result_text, reply_markup=reply_markup)
+    
+    if user_id in user_sessions:
+        del user_sessions[user_id]
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📚 Помощь по боту:\n\n"
+        "/start - Начать работу с ботом\n"
+        "/tests - Показать список тестов\n"
+        "/math - Тест по математике\n"
+        "/prog - Тест по программированию\n"
+        "/help - Эта справка"
+    )
+
+def main():
+    if not TOKEN:
+        logger.error("Токен бота не установлен!")
+        logger.error("Установите переменную TELEGRAM_BOT_TOKEN")
+        return
+    
+    application = Application.builder().token(TOKEN).build()
+    
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("tests", show_tests))
+    application.add_handler(CommandHandler("math", math_test))
+    application.add_handler(CommandHandler("prog", prog_test))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CallbackQueryHandler(handle_callback))
+    
+    logger.info("Бот запущен...")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == "__main__":
+    main()
