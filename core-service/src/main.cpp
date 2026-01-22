@@ -7,7 +7,6 @@
 using json = nlohmann::json;
 using namespace httplib;
 
-// Извлечение токена из заголовка
 std::string extract_token(const Request& req) {
     auto auth_header = req.get_header_value("Authorization");
     if (auth_header.find("Bearer ") == 0) {
@@ -18,10 +17,9 @@ std::string extract_token(const Request& req) {
 
 int main() {
     Server svr;
-    AuthClient auth_client;
+    AuthClient auth_client("http://auth-service:8081");
     Database db;
     
-    // Health check
     svr.Get("/health", [](const Request&, Response& res) {
         json response = {
             {"status", "ok"},
@@ -31,7 +29,6 @@ int main() {
         res.set_content(response.dump(), "application/json");
     });
     
-    // Получить все тесты (требуется авторизация)
     svr.Get("/api/tests", [&](const Request& req, Response& res) {
         std::string token = extract_token(req);
         auto user_info = auth_client.validate_token(token);
@@ -57,7 +54,6 @@ int main() {
         res.set_content(result.dump(), "application/json");
     });
     
-    // Получить конкретный тест
     svr.Get(R"(/api/tests/(\d+))", [&](const Request& req, Response& res) {
         int test_id = std::stoi(req.matches[1]);
         std::string token = extract_token(req);
@@ -89,7 +85,6 @@ int main() {
                 {"id", q.id},
                 {"text", q.text},
                 {"options", q.options}
-                // Не отправляем correct_answer клиенту
             };
             result["questions"].push_back(question);
         }
@@ -97,7 +92,6 @@ int main() {
         res.set_content(result.dump(), "application/json");
     });
     
-    // Отправить ответы
     svr.Post(R"(/api/tests/(\d+)/submit)", [&](const Request& req, Response& res) {
         int test_id = std::stoi(req.matches[1]);
         std::string token = extract_token(req);
@@ -131,7 +125,6 @@ int main() {
             return;
         }
         
-        // Проверяем ответы
         auto& test = test_opt.value();
         int correct = 0;
         for (size_t i = 0; i < std::min(answer_vec.size(), test.questions.size()); i++) {
@@ -142,7 +135,6 @@ int main() {
         
         int score = (test.questions.size() > 0) ? (correct * 100) / test.questions.size() : 0;
         
-        // Сохраняем результат - ИСПРАВЛЕНО: user_id = 1001 для теста
         int user_id = 1001;
         db.save_result(user_id, test_id, answer_vec, score);
         
@@ -156,44 +148,6 @@ int main() {
         };
         
         res.set_content(result.dump(), "application/json");
-    });
-    
-    // Создать тест (только для админов)
-    svr.Post("/api/tests", [&](const Request& req, Response& res) {
-        std::string token = extract_token(req);
-        
-        if (!auth_client.is_admin(token)) {
-            res.status = 403;
-            res.set_content(json{{"error", "Forbidden: admin only"}}.dump(), "application/json");
-            return;
-        }
-        
-        json body;
-        try {
-            body = json::parse(req.body);
-        } catch (...) {
-            res.status = 400;
-            res.set_content(json{{"error", "Invalid JSON"}}.dump(), "application/json");
-            return;
-        }
-        
-        std::string title = body.value("title", "");
-        std::string description = body.value("description", "");
-        
-        if (title.empty()) {
-            res.status = 400;
-            res.set_content(json{{"error", "Title is required"}}.dump(), "application/json");
-            return;
-        }
-        
-        int test_id = db.create_test(title, description);
-        
-        if (test_id > 0) {
-            res.set_content(json{{"id", test_id}, {"success", true}}.dump(), "application/json");
-        } else {
-            res.status = 500;
-            res.set_content(json{{"error", "Failed to create test"}}.dump(), "application/json");
-        }
     });
     
     std::cout << "✅ Core service (C++) running on http://0.0.0.0:8080\n";
