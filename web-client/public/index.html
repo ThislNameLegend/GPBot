@@ -2,48 +2,22 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>GPBot Testing</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Система тестирования</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: #f5f5f5;
-        }
-        .container {
             max-width: 800px;
             margin: 0 auto;
-            background: white;
-            padding: 30px;
+            padding: 20px;
+        }
+        .container {
+            background: #f5f5f5;
+            padding: 20px;
             border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
-        h1 {
-            color: #333;
-            text-align: center;
-        }
-        .status {
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 5px;
-            text-align: center;
-        }
-        .ok {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        .error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        .service {
-            margin: 20px 0;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 5px;
-            border-left: 4px solid #007bff;
+        .login-form, .tests-list, .test-view {
+            margin-bottom: 20px;
         }
         button {
             background: #007bff;
@@ -52,137 +26,232 @@
             padding: 10px 20px;
             border-radius: 5px;
             cursor: pointer;
-            margin: 5px;
         }
         button:hover {
             background: #0056b3;
         }
-        .test {
-            background: #e9ecef;
+        .question {
+            background: white;
             padding: 15px;
             margin: 10px 0;
             border-radius: 5px;
+        }
+        .results {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🤖 GPBot Testing System</h1>
+        <h1>📚 Система массового тестирования</h1>
         
-        <div class="status" id="status">Проверяем сервисы...</div>
-        
-        <div class="service">
-            <h3>🔐 Auth Service (Go)</h3>
-            <div id="authStatus">Загрузка...</div>
-            <button onclick="testAuth()">Тест логина</button>
+        <div id="loginSection" class="login-form">
+            <h2>🔐 Вход в систему</h2>
+            <input type="text" id="username" placeholder="Логин" value="admin">
+            <input type="password" id="password" placeholder="Пароль" value="admin123">
+            <button onclick="login()">Войти</button>
         </div>
         
-        <div class="service">
-            <h3>💻 Core Service (C++)</h3>
-            <div id="coreStatus">Загрузка...</div>
-            <button onclick="loadTests()">Показать тесты</button>
-            <div id="testsList"></div>
-        </div>
-        
-        <div class="service">
-            <h3>🤖 Telegram Bot</h3>
-            <p>Бот: <a href="https://t.me/gpmasspoll_bot" target="_blank">@gpmasspoll_bot</a></p>
-            <p>Команды: /start /tests /math /prog</p>
-        </div>
-        
-        <div class="service">
-            <h3>📡 API Endpoints</h3>
-            <p><a href="http://localhost:8080/api/tests" target="_blank">Core API: /api/tests</a></p>
-            <p><a href="http://localhost:8081/health" target="_blank">Auth API: /health</a></p>
+        <div id="mainSection" style="display: none;">
+            <div id="userInfo">
+                <p>👤 Вы вошли как: <span id="usernameDisplay"></span> (<span id="userRole"></span>)</p>
+                <button onclick="logout()">Выйти</button>
+                <button onclick="loadTests()">Обновить тесты</button>
+            </div>
+            
+            <div id="testsSection" class="tests-list">
+                <h2>📋 Доступные тесты</h2>
+                <div id="testsList"></div>
+            </div>
+            
+            <div id="testSection" class="test-view" style="display: none;">
+                <h2 id="testTitle"></h2>
+                <p id="testDescription"></p>
+                <div id="questionsList"></div>
+                <button onclick="submitTest()">✅ Отправить ответы</button>
+                <button onclick="backToTests()">← Назад к тестам</button>
+            </div>
+            
+            <div id="resultsSection" class="results" style="display: none;">
+                <h3>📊 Результаты теста</h3>
+                <div id="resultsContent"></div>
+                <button onclick="backToTests()">← Назад к тестам</button>
+            </div>
         </div>
     </div>
 
     <script>
-        // Проверка сервисов при загрузке
-        checkServices();
+        let token = '';
+        let currentTest = null;
         
-        async function checkServices() {
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
             try {
-                // Проверяем Core Service
-                const coreRes = await fetch('http://localhost:8080/');
-                document.getElementById('coreStatus').innerHTML = 
-                    coreRes.ok ? '✅ Работает' : '❌ Ошибка';
+                const response = await fetch('http://localhost:8081/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username, password})
+                });
                 
-                // Проверяем Auth Service
-                const authRes = await fetch('http://localhost:8081/health');
-                document.getElementById('authStatus').innerHTML = 
-                    authRes.ok ? '✅ Работает' : '❌ Ошибка';
+                if (!response.ok) throw new Error('Ошибка авторизации');
                 
-                document.getElementById('status').className = 'status ok';
-                document.getElementById('status').innerHTML = '✅ Все сервисы работают';
+                const data = await response.json();
+                token = data.token;
+                
+                document.getElementById('loginSection').style.display = 'none';
+                document.getElementById('mainSection').style.display = 'block';
+                document.getElementById('usernameDisplay').textContent = data.user;
+                document.getElementById('userRole').textContent = data.role;
+                
+                loadTests();
+                
             } catch (error) {
-                document.getElementById('status').className = 'status error';
-                document.getElementById('status').innerHTML = '❌ Ошибка подключения';
+                alert('Ошибка: ' + error.message);
             }
         }
         
-        async function testAuth() {
-            try {
-                const res = await fetch('http://localhost:8081/auth/login', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        username: 'admin',
-                        password: 'admin123'
-                    })
-                });
-                const data = await res.json();
-                alert('✅ Логин успешен!\nТокен: ' + data.token.substring(0, 30) + '...');
-            } catch (error) {
-                alert('❌ Ошибка авторизации');
-            }
+        function logout() {
+            token = '';
+            document.getElementById('loginSection').style.display = 'block';
+            document.getElementById('mainSection').style.display = 'none';
         }
         
         async function loadTests() {
             try {
-                const res = await fetch('http://localhost:8080/api/tests');
-                const tests = await res.json();
-                
-                let html = '<h4>Доступные тесты:</h4>';
-                tests.forEach(test => {
-                    html += `
-                        <div class="test">
-                            <strong>${test.title}</strong>
-                            <p>${test.description || 'Тест для проверки знаний'}</p>
-                            <button onclick="viewTest(${test.id})">Посмотреть</button>
-                        </div>
-                    `;
+                const response = await fetch('http://localhost:8080/api/tests', {
+                    headers: {'Authorization': `Bearer ${token}`}
                 });
                 
-                document.getElementById('testsList').innerHTML = html;
+                if (!response.ok) throw new Error('Ошибка загрузки тестов');
+                
+                const tests = await response.json();
+                displayTests(tests);
+                
             } catch (error) {
-                document.getElementById('testsList').innerHTML = '❌ Ошибка загрузки тестов';
+                alert('Ошибка: ' + error.message);
             }
         }
         
-        async function viewTest(testId) {
-            try {
-                const res = await fetch(`http://localhost:8080/api/tests/${testId}`);
-                const test = await res.json();
-                
-                let html = `<h4>${test.title}</h4>`;
-                if (test.questions && test.questions.length > 0) {
-                    test.questions.forEach((q, i) => {
-                        html += `<p><strong>Вопрос ${i+1}:</strong> ${q.text}</p>`;
-                        if (q.answers) {
-                            html += '<ul>';
-                            q.answers.forEach((a, j) => {
-                                html += `<li>${a} ${j === q.correct ? '✅' : ''}</li>`;
-                            });
-                            html += '</ul>';
-                        }
-                    });
-                }
-                
-                alert(html);
-            } catch (error) {
-                alert('❌ Ошибка загрузки теста');
+        function displayTests(tests) {
+            const container = document.getElementById('testsList');
+            container.innerHTML = '';
+            
+            if (tests.length === 0) {
+                container.innerHTML = '<p>Тестов пока нет</p>';
+                return;
             }
+            
+            tests.forEach(test => {
+                const div = document.createElement('div');
+                div.className = 'question';
+                div.innerHTML = `
+                    <h3>${test.title}</h3>
+                    <p>${test.description || 'Без описания'}</p>
+                    <p>📝 Вопросов: ${test.questions_count || 0}</p>
+                    <button onclick="startTest(${test.id})">Начать тест</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+        
+        async function startTest(testId) {
+            try {
+                const response = await fetch(`http://localhost:8080/api/tests/${testId}`, {
+                    headers: {'Authorization': `Bearer ${token}`}
+                });
+                
+                if (!response.ok) throw new Error('Ошибка загрузки теста');
+                
+                currentTest = await response.json();
+                displayTest(currentTest);
+                
+            } catch (error) {
+                alert('Ошибка: ' + error.message);
+            }
+        }
+        
+        function displayTest(test) {
+            document.getElementById('testsSection').style.display = 'none';
+            document.getElementById('testSection').style.display = 'block';
+            
+            document.getElementById('testTitle').textContent = test.title;
+            document.getElementById('testDescription').textContent = test.description;
+            
+            const container = document.getElementById('questionsList');
+            container.innerHTML = '';
+            
+            test.questions.forEach((question, index) => {
+                const div = document.createElement('div');
+                div.className = 'question';
+                div.innerHTML = `
+                    <h4>Вопрос ${index + 1}: ${question.text}</h4>
+                    ${question.options.map((option, optIndex) => `
+                        <div>
+                            <input type="radio" 
+                                   name="question_${question.id}" 
+                                   value="${optIndex}"
+                                   id="q${question.id}_opt${optIndex}">
+                            <label for="q${question.id}_opt${optIndex}">${option}</label>
+                        </div>
+                    `).join('')}
+                `;
+                container.appendChild(div);
+            });
+        }
+        
+        async function submitTest() {
+            if (!currentTest) return;
+            
+            const answers = [];
+            currentTest.questions.forEach(question => {
+                const selected = document.querySelector(`input[name="question_${question.id}"]:checked`);
+                answers.push(selected ? parseInt(selected.value) : -1);
+            });
+            
+            try {
+                const response = await fetch(`http://localhost:8080/api/tests/${currentTest.id}/submit`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({answers})
+                });
+                
+                if (!response.ok) throw new Error('Ошибка отправки ответов');
+                
+                const results = await response.json();
+                displayResults(results);
+                
+            } catch (error) {
+                alert('Ошибка: ' + error.message);
+            }
+        }
+        
+        function displayResults(results) {
+            document.getElementById('testSection').style.display = 'none';
+            document.getElementById('resultsSection').style.display = 'block';
+            
+            const container = document.getElementById('resultsContent');
+            container.innerHTML = `
+                <p>✅ Завершено!</p>
+                <p>Всего вопросов: ${results.total_questions}</p>
+                <p>Правильных ответов: ${results.correct_answers}</p>
+                <p>Процент: ${results.score}%</p>
+                <p>Статус: <strong>${results.passed ? 'СДАНО' : 'НЕ СДАНО'}</strong></p>
+            `;
+        }
+        
+        function backToTests() {
+            document.getElementById('testSection').style.display = 'none';
+            document.getElementById('resultsSection').style.display = 'none';
+            document.getElementById('testsSection').style.display = 'block';
+            loadTests();
         }
     </script>
 </body>
