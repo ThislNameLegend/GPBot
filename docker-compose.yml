@@ -42,7 +42,6 @@ services:
     depends_on:
       core-service:
         condition: service_healthy
-    restart: unless-stopped
 
   web-client:
     build: ./web-client
@@ -53,9 +52,7 @@ services:
     depends_on:
       core-service:
         condition: service_healthy
-    restart: unless-stopped
 
-# ДОБАВЬТЕ ЭТОТ РАЗДЕЛ!
 networks:
   app-network:
     driver: bridge
