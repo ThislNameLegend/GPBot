@@ -1,0 +1,18 @@
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+COPY go.mod ./
+RUN go mod download
+COPY . .
+
+RUN go build -o /auth-service
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY --from=builder /auth-service .
+EXPOSE 8081
+
+ENV JWT_SECRET=your_super_secret_key_change_in_production
+
+CMD ["./auth-service"]
